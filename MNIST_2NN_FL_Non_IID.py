@@ -51,18 +51,14 @@ def prep_pixels(train, test):
 
 
 ##############################deifinition of the CNN model
-class Model_CNN:
+class Model_NN:
   def build(self):
     model = Sequential()
-    model.add(Conv2D(32, (5, 5), activation='relu', input_shape=(28, 28, 1)))
-    model.add(MaxPooling2D((2, 2)))
-    model.add(Conv2D(64, (5, 5), activation='relu'))
-    model.add(MaxPooling2D((2, 2)))
-    model.add(Flatten())
-    model.add(Dense(512, activation='relu'))
-    model.add(Dense(10, activation='softmax'))
-    return model
-     
+    model.add(Flatten(input_shape=(28,28,1)))
+    model.add(Dense(200 , activation = "relu" ))
+    model.add(Dense(200, activation = "relu" ))
+    model.add(Dense(10, activation = "softmax" ))
+    return model   
      
      
 ############################Federated learning
@@ -86,7 +82,48 @@ def create_clients(image_list, label_list, num_clients=100, initial='clients'):
     assert(len(shards) == len(client_names))
 
     return {client_names[i] : shards[i] for i in range(len(client_names))}
-  
+
+#creating clients with Non IID data  
+def non_iid_x(image_list, label_list, x=2, num_intraclass_clients=20):
+        ''' creates x non_IID clients
+        args: 
+            image_list: python list of images or data points
+            label_list: python list of labels
+            x: none IID severity, 1 means each client will only have one class of data
+            num_intraclass_client: number of sub-client to be created from each none IID class,
+            e.g for x=1, we could create 10 further clients by splitting each class into 10
+            
+        return - dictionary 
+            keys - clients's name, 
+            value - client's non iid 1 data shard (as tuple list of images and labels) '''
+        non_iid_x_clients = dict()
+                
+                #create unique label list and shuffle
+        unique_labels = np.unique(np.array(range(10)))
+        random.shuffle(unique_labels)
+            #create sub label lists based on x
+        sub_lab_list = [unique_labels[i:i + x] for i in range(0, len(unique_labels), x)]
+                    
+        for item in sub_lab_list :
+            class_data = [(image, label) for (image, label) in zip(image_list, label_list) if list(label).index(1) in item]
+                    
+                    #decouple tuple list into seperate image and label lists
+            images, labels = zip(*class_data)
+                    
+                    # create formated client initials
+            initial = 'client_' + '_'
+            for lab in item:
+                initial = initial + str(lab) + '_' 
+                    
+                    #create num_intraclass_clients clients from the class 
+            intraclass_clients = create_clients(list(images), list(labels), num_intraclass_clients, initial)
+                    
+                    #append intraclass clients to main clients'dict
+            non_iid_x_clients.update(intraclass_clients)
+                
+        return non_iid_x_clients
+
+
 #batch the clients data
 def batch_data(data_shard, bs=10):
     #seperate shard into data and labels lists
@@ -138,9 +175,10 @@ def test_model(X_test, Y_test,  model, comm_round):
 ###############
 trainX, trainY, testX, testY = load_dataset()
 trainX, testX = prep_pixels(trainX, testX)
-clients = create_clients(trainX, trainY, num_clients=100, initial='client')
+clients = non_iid_x(trainX, trainY,2,20)
+#clients = create_clients(trainX, trainY, num_clients=100, initial='client')
 
-C=0 #fraction of the clients that we are going to use in the federated learning part
+C=0.1 #fraction of the clients that we are going to use in the federated learning part
 nb_clients=100
 m = max(C * nb_clients, 1)
 def clients_batch():
@@ -157,16 +195,16 @@ test_batched = tf.data.Dataset.from_tensor_slices((testX, testY)).batch(len(test
 
 ############Executing
 lr = 0.01
-comms_round = 300
+comms_round = 200
 loss='categorical_crossentropy'
 metrics = ['accuracy']
 optimizer = SGD(lr=lr)   
 
 #initialize global model
-CNN_global = Model_CNN()
-global_model = CNN_global.build()
-global_acc_prog_CNN=list()
-global_loss_prog_CNN=list()
+NN_global = Model_NN()
+global_model = NN_global.build()
+global_acc_prog_NN=list()
+global_loss_prog_NN =list()
 #commence global training loop
 for comm_round in range(comms_round):
         
@@ -184,8 +222,8 @@ for comm_round in range(comms_round):
     #loop through each client and create new local model
     for client in client_names:
         print("client {}, round = {}".format(client, comm_round))
-        CNN_local = Model_CNN()
-        local_model = CNN_local.build()
+        NN_local = Model_NN()
+        local_model = NN_local.build()
         local_model.compile(loss=loss, 
                     optimizer=optimizer, 
                     metrics=metrics)
@@ -194,7 +232,7 @@ for comm_round in range(comms_round):
         local_model.set_weights(global_weights)
     
         #fit local model with client's data
-        local_model.fit(clients_batched[client], epochs=5, verbose=0)
+        local_model.fit(clients_batched[client], epochs=1, verbose=0)
     
         #scale the model weights and add to list
         scaling_factor = weight_scalling_factor(clients_batched, client)
@@ -213,28 +251,28 @@ for comm_round in range(comms_round):
     #test global model and print out metrics after each communications round
     for(X_test, Y_test) in test_batched:
         global_acc, global_loss = test_model(X_test, Y_test, global_model, comm_round)
-    global_acc_prog_CNN.append(global_acc)
-    global_loss_prog_CNN.append(global_loss)
+    global_acc_prog_NN.append(global_acc)
+    global_loss_prog_NN.append(global_loss)
 
 
 
 # global_acc_prog_CNN,global_loss_prog_CNN=run_global_model()
 # plot accuracy and loss performance of the globel model
 plt.subplot(2, 1, 1)
-plt.title('accuracy performance throughout the rounds of the CNN model')
-plt.plot(global_acc_prog_CNN, color='blue', label='acc')
+plt.title('accuracy performance throughout the rounds of the 2NN model')
+plt.plot(global_acc_prog_NN, color='blue', label='acc')
 plt.subplot(2, 1, 2)
-plt.title('loss performance throughout the rounds of the CNN model')
-plt.plot(global_loss_prog_CNN, color='blue', label='acc')
+plt.title('loss performance throughout the rounds of the 2NN model')
+plt.plot(global_loss_prog_NN, color='blue', label='acc')
 plt.show()
 
 
-with open("global_acc_prog_CNN_IID_"+str(int(m))+".txt", 'w') as f:
-    for s in global_acc_prog_CNN:
+with open("global_acc_prog_2NN_Non_IID_"+str(int(m))+".txt", 'w') as f:
+    for s in global_acc_prog_NN:
         f.write(str(s) + '\n')
 
-with open("global_loss_prog_CNN_IID_"+str(int(m))+".txt", 'w') as f:
-    for s in global_loss_prog_CNN:
+with open("global_loss_prog_2NN_Non_IID_"+str(int(m))+".txt", 'w') as f:
+    for s in global_loss_prog_NN:
         f.write(str(s) + '\n')
 
 

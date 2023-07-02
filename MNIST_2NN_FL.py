@@ -58,15 +58,14 @@ class Model_NN:
     model.add(Dense(200 , activation = "relu" ))
     model.add(Dense(200, activation = "relu" ))
     model.add(Dense(10, activation = "softmax" ))
-    return model
-     
+    return model   
      
      
 ############################Federated learning
 
 ###########definiton of clients
 #creating clietns for that would excute the FL locally
-def create_clients(image_list, label_list, num_clients=10, initial='clients'):
+def create_clients(image_list, label_list, num_clients=100, initial='clients'):
 
     #create a list of client names
     client_names = ['{}_{}'.format(initial, i+1) for i in range(num_clients)]
@@ -90,6 +89,7 @@ def batch_data(data_shard, bs=10):
     data, label = zip(*data_shard)
     dataset = tf.data.Dataset.from_tensor_slices((list(data), list(label)))
     return dataset.shuffle(len(label)).batch(bs)
+
 
 
 
@@ -124,7 +124,6 @@ def sum_scaled_weights(scaled_weight_list):
 
 def test_model(X_test, Y_test,  model, comm_round):
     cce = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
-    #logits = model.predict(X_test, batch_size=100)
     logits = model.predict(X_test)
     loss = cce(Y_test, logits)
     acc = accuracy_score(tf.argmax(logits, axis=1), tf.argmax(Y_test, axis=1))
@@ -136,21 +135,29 @@ def test_model(X_test, Y_test,  model, comm_round):
 trainX, trainY, testX, testY = load_dataset()
 trainX, testX = prep_pixels(trainX, testX)
 clients = create_clients(trainX, trainY, num_clients=100, initial='client')
-clients_batched = dict()
-for (client_name, data) in clients.items():
-    clients_batched[client_name] = batch_data(data)
-    
+
+C=0.1 #fraction of the clients that we are going to use in the federated learning part
+nb_clients=100
+m = max(C * nb_clients, 1)
+def clients_batch():
+    clients_batched = dict()
+    for client_key in random.sample(list(clients.keys()), int(m)):
+        clients_batched[client_key] = batch_data(clients[client_key])
+    return clients_batched
+
+
+
+
 #process and batch the test set  
 test_batched = tf.data.Dataset.from_tensor_slices((testX, testY)).batch(len(testY))
 
 ############Executing
-lr = 0.01 
-comms_round = 200
+lr = 0.01
+comms_round = 1000
 loss='categorical_crossentropy'
 metrics = ['accuracy']
-optimizer = SGD(lr=lr, decay=lr/comms_round , momentum=0.9)   
-                
-    
+optimizer = SGD(lr=lr)   
+
 #initialize global model
 NN_global = Model_NN()
 global_model = NN_global.build()
@@ -158,42 +165,44 @@ global_acc_prog_NN=list()
 global_loss_prog_NN =list()
 #commence global training loop
 for comm_round in range(comms_round):
-            
+        
     # get the global model's weights - will serve as the initial weights for all local models
     global_weights = global_model.get_weights()
-    
+
     #initial list to collect local model weights after scalling
     scaled_local_weight_list = list()
-
+    clients_batched=dict()
+    clients_batched=clients_batch()
     #randomize client data - using keys
     client_names= list(clients_batched.keys())
     random.shuffle(client_names)
-    
+
     #loop through each client and create new local model
     for client in client_names:
+        print("client {}, round = {}".format(client, comm_round))
         NN_local = Model_NN()
         local_model = NN_local.build()
         local_model.compile(loss=loss, 
-                      optimizer=optimizer, 
-                      metrics=metrics)
-        
+                    optimizer=optimizer, 
+                    metrics=metrics)
+    
         #set local model weight to the weight of the global model
         local_model.set_weights(global_weights)
-        
+    
         #fit local model with client's data
         local_model.fit(clients_batched[client], epochs=1, verbose=0)
-        
+    
         #scale the model weights and add to list
         scaling_factor = weight_scalling_factor(clients_batched, client)
         scaled_weights = scale_model_weights(local_model.get_weights(), scaling_factor)
         scaled_local_weight_list.append(scaled_weights)
-        
+    
         #clear session to free memory after each communication round
-        K.clear_session()
-        
+        tf.keras.backend.clear_session()
+    
     #to get the average over all the local model, we simply take the sum of the scaled weights
     average_weights = sum_scaled_weights(scaled_local_weight_list)
-    
+
     #update global model 
     global_model.set_weights(average_weights)
 
@@ -204,6 +213,9 @@ for comm_round in range(comms_round):
     global_loss_prog_NN.append(global_loss)
 
 
+
+# global_acc_prog_CNN,global_loss_prog_CNN=run_global_model()
+# plot accuracy and loss performance of the globel model
 plt.subplot(2, 1, 1)
 plt.title('accuracy performance throughout the rounds of the 2NN model')
 plt.plot(global_acc_prog_NN, color='blue', label='acc')
@@ -213,6 +225,13 @@ plt.plot(global_loss_prog_NN, color='blue', label='acc')
 plt.show()
 
 
+with open("global_acc_prog_2NN_IID_"+str(int(m))+".txt", 'w') as f:
+    for s in global_acc_prog_NN:
+        f.write(str(s) + '\n')
+
+with open("global_loss_prog_2NN_IID_"+str(int(m))+".txt", 'w') as f:
+    for s in global_loss_prog_NN:
+        f.write(str(s) + '\n')
 
 
 

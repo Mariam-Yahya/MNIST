@@ -22,6 +22,7 @@ from tensorflow.keras.layers import Flatten
 from tensorflow.keras.optimizers import SGD
 import tensorflow as tf
 from keras import backend as K 
+# from itertools import combinations
 
 
 ############################loading required data
@@ -68,7 +69,7 @@ class Model_CNN:
 ############################Federated learning
 
 ###########definiton of clients
-#creating clietns for that would excute the FL locally
+#creating clietns that would excute the FL locally
 def create_clients(image_list, label_list, num_clients=100, initial='clients'):
 
     #create a list of client names
@@ -77,16 +78,55 @@ def create_clients(image_list, label_list, num_clients=100, initial='clients'):
     #randomize the data
     data = list(zip(image_list, label_list))
     random.shuffle(data)
-
     #shard data and place at each client
     size = len(data)//num_clients
     shards = [data[i:i + size] for i in range(0, size*num_clients, size)]
-
+    
     #number of clients must equal number of shards
     assert(len(shards) == len(client_names))
 
     return {client_names[i] : shards[i] for i in range(len(client_names))}
-  
+
+#creating clients with Non IID data  
+def non_iid_x(image_list, label_list, x=2, num_intraclass_clients=20):
+        ''' creates x non_IID clients
+        args: 
+            image_list: python list of images or data points
+            label_list: python list of labels
+            x: none IID severity, 1 means each client will only have one class of data
+            num_intraclass_client: number of sub-client to be created from each none IID class,
+            e.g for x=1, we could create 10 further clients by splitting each class into 10
+            
+        return - dictionary 
+            keys - clients's name, 
+            value - client's non iid 1 data shard (as tuple list of images and labels) '''
+        non_iid_x_clients = dict()
+                
+                #create unique label list and shuffle
+        unique_labels = np.unique(np.array(range(10)))
+        random.shuffle(unique_labels)
+            #create sub label lists based on x
+        sub_lab_list = [unique_labels[i:i + x] for i in range(0, len(unique_labels), x)]
+                    
+        for item in sub_lab_list :
+            class_data = [(image, label) for (image, label) in zip(image_list, label_list) if list(label).index(1) in item]
+                    
+                    #decouple tuple list into seperate image and label lists
+            images, labels = zip(*class_data)
+                    
+                    # create formated client initials
+            initial = 'client_' + '_'
+            for lab in item:
+                initial = initial + str(lab) + '_' 
+                    
+                    #create num_intraclass_clients clients from the class 
+            intraclass_clients = create_clients(list(images), list(labels), num_intraclass_clients, initial)
+                    
+                    #append intraclass clients to main clients'dict
+            non_iid_x_clients.update(intraclass_clients)
+                
+        return non_iid_x_clients
+
 #batch the clients data
 def batch_data(data_shard, bs=10):
     #seperate shard into data and labels lists
@@ -138,9 +178,9 @@ def test_model(X_test, Y_test,  model, comm_round):
 ###############
 trainX, trainY, testX, testY = load_dataset()
 trainX, testX = prep_pixels(trainX, testX)
-clients = create_clients(trainX, trainY, num_clients=100, initial='client')
-
-C=0 #fraction of the clients that we are going to use in the federated learning part
+clients = non_iid_x(trainX, trainY,2,20)
+#clients = create_clients(trainX, trainY, num_clients=100, initial='client')
+C=0.1 #fraction of the clients that we are going to use in the federated learning part
 nb_clients=100
 m = max(C * nb_clients, 1)
 def clients_batch():
@@ -157,7 +197,7 @@ test_batched = tf.data.Dataset.from_tensor_slices((testX, testY)).batch(len(test
 
 ############Executing
 lr = 0.01
-comms_round = 300
+comms_round = 1000
 loss='categorical_crossentropy'
 metrics = ['accuracy']
 optimizer = SGD(lr=lr)   
@@ -229,11 +269,11 @@ plt.plot(global_loss_prog_CNN, color='blue', label='acc')
 plt.show()
 
 
-with open("global_acc_prog_CNN_IID_"+str(int(m))+".txt", 'w') as f:
+with open("global_acc_prog_CNN_Non_IID_"+str(int(m))+".txt", 'w') as f:
     for s in global_acc_prog_CNN:
         f.write(str(s) + '\n')
 
-with open("global_loss_prog_CNN_IID_"+str(int(m))+".txt", 'w') as f:
+with open("global_loss_prog_CNN_Non_IID_"+str(int(m))+".txt", 'w') as f:
     for s in global_loss_prog_CNN:
         f.write(str(s) + '\n')
 
