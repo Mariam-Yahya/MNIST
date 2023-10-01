@@ -166,6 +166,7 @@ def test_algorithm(algo, arms, num_sims, horizon):
     times = [0.0 for i in range (num_sims*horizon)]
     cumulative_regret = [0.0 for i in range(num_sims*horizon)]
     best_arms = [0.0 for i in range(num_sims*horizon)]
+    
 
     for sim in range(num_sims):
         sim = sim + 1
@@ -187,15 +188,15 @@ def test_algorithm(algo, arms, num_sims, horizon):
             avg_distribution_time_uplink=simulate_avg_distribution_time(m0=5*10**3,B=15*1e3,avg_distribution_rate=avg_distribution_rate_uplink)
             avg_distribution_time_downlink=simulate_avg_distribution_time(m0=5*10**3,B=15*10**3,avg_distribution_rate=avg_distribution_rate_downlink)
             update_times=simulate_update_time(batch=20)
-
+            
             # Engage chosen Delay Arm and obtain reward info
             reward = reward_arm_delay(avg_distribution_time_uplink,avg_distribution_time_downlink,update_times,chosen_arm)
-
             rewards[index] = reward
-            
+
             # Get all the rewards of other arms if they were to be played
-            rewards_all_arms=[reward_arm_delay(avg_distribution_rate_uplink,avg_distribution_rate_downlink,update_times,i) for i in arms ] 
+            rewards_all_arms=[reward_arm_delay(avg_distribution_time_uplink,avg_distribution_time_downlink,update_times,i) for i in arms ] 
             optimal_reward=max(rewards_all_arms)
+
             best_arm=rewards_all_arms.index(max(rewards_all_arms))
             best_arms[index]=best_arm
             if t ==1:
@@ -207,13 +208,14 @@ def test_algorithm(algo, arms, num_sims, horizon):
                 
             algo.update(chosen_arm, reward)
     
-    return [sim_nums, times, chosen_arms, rewards, cumulative_rewards, cumulative_regret,best_arms]
+    return [sim_nums, times, chosen_arms, rewards, cumulative_rewards, cumulative_regret,best_arms,delay]
 
 random.seed(1)
 
+
 n_arms=len(distances)
-nb_sims=50
-nb_rounds=1000
+nb_sims=250
+nb_rounds=10000
 arms = [i for i in range(20)]
 algo = UCB1([], [])
 algo.initialize(n_arms)
@@ -229,13 +231,6 @@ cumulative_rewards=results[4]
 cumulative_regret=results[5]
 best_arms=results[6]
 
-print(sim_nums)
-print(times)
-print(chosen_arms)
-print(cumulative_rewards)
-print(cumulative_regret)
-print(best_arms)
-
 
 def mean_result(result,step):
     avg_result=[0 for i in range(step)]
@@ -250,8 +245,10 @@ for i in range(nb_rounds):
         lst.append(chosen_arms[j])
     best_chosen_arm_mean.append(lst)
     lst=[]
+
 for i in range(len(best_chosen_arm_mean)):
     best_chosen_arm_mean[i]=best_chosen_arm_mean[i].count(best_arms[i])/len(best_chosen_arm_mean[i])
+
 
 
 
