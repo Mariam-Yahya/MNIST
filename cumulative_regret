@@ -1,0 +1,52 @@
+import math
+import random
+
+class UCB1:
+    def __init__(self, num_arms):
+        self.num_arms = num_arms
+        self.counts = [0] * num_arms
+        self.values = [0] * num_arms
+
+    def select_arm(self):
+        total_counts = sum(self.counts)
+        ucb_values = [0] * self.num_arms
+        for arm in range(self.num_arms):
+            if self.counts[arm] == 0:
+                ucb_values[arm] = float('inf')
+            else:
+                exploration_bonus = math.sqrt(2 * math.log(total_counts) / self.counts[arm])
+                ucb_values[arm] = self.values[arm] + exploration_bonus
+        return ucb_values.index(max(ucb_values))
+
+    def update(self, arm, reward):
+        self.counts[arm] += 1
+        n = self counts[arm]
+        value = self.values[arm]
+        new_value = ((n - 1) / n) * value + (1 / n) * reward
+        self.values[arm] = new_value
+
+def bernoulli_reward(probability):
+    return random.random() < probability
+
+def ucb1_simulation(num_arms, num_steps, true_probabilities):
+    ucb1 = UCB1(num_arms)
+    cumulative_regret = 0
+
+    for step in range(num_steps):
+        chosen_arm = ucb1.select_arm()
+        reward = bernoulli_reward(true_probabilities[chosen_arm])
+        ucb1.update(chosen_arm, reward)
+        
+        optimal_reward = max(true_probabilities)
+        optimal_arm = true_probabilities.index(optimal_reward)
+        regret = optimal_reward - true_probabilities[chosen_arm]
+        cumulative_regret += regret
+
+    return cumulative_regret
+
+# Example usage
+num_arms = 3
+num_steps = 1000
+true_probabilities = [0.9, 0.8, 0.7]  # true probabilities of success for each arm
+cumulative_regret = ucb1_simulation(num_arms, num_steps, true_probabilities)
+print("Cumulative Regret:", cumulative_regret)
